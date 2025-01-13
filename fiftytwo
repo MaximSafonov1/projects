@@ -3,11 +3,10 @@ import random
 import shutil
 from typing import List
 import fiftyone as fo
-import fiftyone.utils.data as foud
 
 # Define paths
 images_dir = "/absolute/path/to/images"  # Absolute path to the images folder
-annotations_dir = "/absolute/path/to/annotation"  # Absolute path to the annotations folder
+annotations_dir = "/absolute/path/to/annotation_Output_090"  # Absolute path to the annotations folder
 output_images_dir = "/absolute/path/to/selected_images"  # Folder for selected images
 output_annotations_dir = "/absolute/path/to/selected_annotations"  # Folder for selected annotations
 sample_percentage = 0.05  # Percentage of files to sample (5%)
@@ -62,15 +61,15 @@ def copy_files(selected_files: List[str], src_dir: str, dest_dir: str) -> None:
         os.makedirs(os.path.dirname(dest_path), exist_ok=True)
         shutil.copy(file_path, dest_path)
 
-# Process categories (car and motobike)
-categories = ["car", "motobike"]
+# Process categories (Europe-Car and Europe-Motorbike)
+categories = [("Europe-Car", "Europe-Car-Updated"), ("Europe-Motorbike", "Europe-Motorbike-Updated")]
 
-for category in categories:
+for images_category, annotations_category in categories:
     # Define paths for each category (images and annotations)
-    image_category_dir = os.path.join(images_dir, category)
-    annotation_category_dir = os.path.join(annotations_dir, category)
+    image_category_dir = os.path.join(images_dir, images_category)
+    annotation_category_dir = os.path.join(annotations_dir, annotations_category)
 
-    # Get all subfolders in the category
+    # Get all subfolders in the image category
     subfolders = [
         os.path.join(image_category_dir, subfolder)
         for subfolder in os.listdir(image_category_dir)
@@ -85,10 +84,9 @@ for category in categories:
         selected_images = random_sample_files(image_files, sample_percentage)
 
         # Determine corresponding annotation files (same name but .xml extension)
-        annotation_subfolder = os.path.join(annotation_category_dir, os.path.basename(subfolder))
+        subfolder_name = os.path.basename(subfolder)
         annotation_files = [
-            os.path.join(annotation_subfolder, os.path.basename(img).replace(".jpg", ".xml"))
-            for img in selected_images
+            os.path.join(annotation_category_dir, f"{subfolder_name}.xml")
         ]
 
         # Copy selected images and corresponding annotations to the output directories
@@ -98,8 +96,9 @@ for category in categories:
 # Load data into FiftyOne for quality inspection
 dataset = fo.Dataset("image_quality_check")
 
+# Use VOCDetectionDataset since the annotations are in Pascal VOC (XML) format
 dataset.add_dir(
-    dataset_type=fo.types.COCODetectionDataset,  # Replace with PascalVOC if needed
+    dataset_type=fo.types.VOCDetectionDataset,
     data_path=output_images_dir,
     labels_path=output_annotations_dir
 )
