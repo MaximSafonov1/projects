@@ -2,11 +2,12 @@ import os
 import random
 import shutil
 from typing import List
+import xml.etree.ElementTree as ET
 import fiftyone as fo
 
 # Define paths
-images_dir = "/absolute/path/to/images"  # Absolute path to the images folder
-annotations_dir = "/absolute/path/to/annotation_Output_090"  # Absolute path to the annotations folder
+images_dir = "/absolute/path/to/images"  # Path to the images folder
+annotations_dir = "/absolute/path/to/annotation_Output_090"  # Path to the annotations folder
 output_images_dir = "/absolute/path/to/selected_images"  # Folder for selected images
 output_annotations_dir = "/absolute/path/to/selected_annotations"  # Folder for selected annotations
 sample_percentage = 0.05  # Percentage of files to sample (5%)
@@ -16,56 +17,58 @@ os.makedirs(output_images_dir, exist_ok=True)
 os.makedirs(output_annotations_dir, exist_ok=True)
 
 def get_all_files(directory: str) -> List[str]:
-    """
-    Recursively collects all file paths from a directory and its subdirectories.
-
-    Args:
-        directory (str): Path to the root directory.
-
-    Returns:
-        List[str]: A list of file paths found in the directory.
-    """
+    """Recursively collects all file paths from a directory and its subdirectories."""
     files = []
     for root, _, filenames in os.walk(directory):
         for filename in filenames:
-            files.append(os.path.join(root, filename))
+            file_path = os.path.join(root, filename)
+            if os.path.isfile(file_path):
+                files.append(file_path)
     return files
 
 def random_sample_files(files: List[str], percentage: float) -> List[str]:
-    """
-    Randomly selects a percentage of files from a given list.
-
-    Args:
-        files (List[str]): List of file paths.
-        percentage (float): Percentage of files to select (between 0 and 1).
-
-    Returns:
-        List[str]: A list of randomly selected file paths.
-    """
+    """Randomly selects a percentage of files from a given list."""
     sample_size = max(1, int(len(files) * percentage))
     return random.sample(files, sample_size)
 
 def copy_files(selected_files: List[str], src_dir: str, dest_dir: str) -> None:
-    """
-    Copies selected files to a destination directory, preserving folder structure.
-
-    Args:
-        selected_files (List[str]): List of file paths to copy.
-        src_dir (str): Root directory of the source files.
-        dest_dir (str): Root directory for the destination files.
-    """
+    """Copies selected files to a destination directory, preserving folder structure."""
     for file_path in selected_files:
-        # Preserve the folder structure by calculating the relative path
         relative_path = os.path.relpath(file_path, src_dir)
         dest_path = os.path.join(dest_dir, relative_path)
         os.makedirs(os.path.dirname(dest_path), exist_ok=True)
         shutil.copy(file_path, dest_path)
 
-# Process categories (Europe-Car and Europe-Motorbike)
+def extract_relevant_annotations(annotation_file: str, selected_images: List[str], output_file: str) -> None:
+    """
+    Extracts relevant annotations from an XML file for the selected images.
+
+    Args:
+        annotation_file (str): Path to the original XML annotation file.
+        selected_images (List[str]): List of selected image names (e.g., ["26647.jpg"]).
+        output_file (str): Path to save the filtered XML file.
+    """
+    tree = ET.parse(annotation_file)
+    root = tree.getroot()
+
+    # Create a new root element for the filtered annotations
+    new_root = ET.Element(root.tag, root.attrib)
+
+    # Copy relevant <image> elements
+    for image_elem in root.findall("image"):
+        if image_elem.attrib.get("name") in selected_images:
+            new_root.append(image_elem)
+
+    # Write filtered XML to the output file
+    new_tree = ET.ElementTree(new_root)
+    os.makedirs(os.path.dirname(output_file), exist_ok=True)
+    new_tree.write(output_file, encoding="utf-8", xml_declaration=True)
+
+# Process categories
 categories = [("Europe-Car", "Europe-Car-Updated"), ("Europe-Motorbike", "Europe-Motorbike-Updated")]
 
 for images_category, annotations_category in categories:
-    # Define paths for each category (images and annotations)
+    # Define paths for each category
     image_category_dir = os.path.join(images_dir, images_category)
     annotation_category_dir = os.path.join(annotations_dir, annotations_category)
 
@@ -79,19 +82,29 @@ for images_category, annotations_category in categories:
     for subfolder in subfolders:
         # Collect all image files in the subfolder
         image_files = get_all_files(subfolder)
-        
+
         # Select a random sample of 5% of the images
         selected_images = random_sample_files(image_files, sample_percentage)
 
-        # Determine corresponding annotation files (same name but .xml extension)
-        subfolder_name = os.path.basename(subfolder)
-        annotation_files = [
-            os.path.join(annotation_category_dir, f"{subfolder_name}.xml")
-        ]
+        # Extract image names (e.g., "26647.jpg")
+        selected_image_names = [os.path.basename(img) for img in selected_images]
 
-        # Copy selected images and corresponding annotations to the output directories
+        # Determine the corresponding annotation file
+        subfolder_name = os.path.basename(subfolder)
+        annotation_file = os.path.join(annotation_category_dir, f"{subfolder_name}.xml")
+
+        if not os.path.exists(annotation_file):
+            print(f"WARNING: Annotation file not found: {annotation_file}")
+            continue
+
+        # Create output annotation file path
+        output_annotation_file = os.path.join(output_annotations_dir, f"{subfolder_name}.xml")
+
+        # Extract relevant annotations
+        extract_relevant_annotations(annotation_file, selected_image_names, output_annotation_file)
+
+        # Copy selected images
         copy_files(selected_images, images_dir, output_images_dir)
-        copy_files(annotation_files, annotations_dir, output_annotations_dir)
 
 # Load data into FiftyOne for quality inspection
 dataset = fo.Dataset("image_quality_check")
