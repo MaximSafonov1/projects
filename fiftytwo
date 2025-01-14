@@ -10,6 +10,8 @@ images_dir = "/absolute/path/to/images"  # Path to the images folder
 annotations_dir = "/absolute/path/to/annotation_Output_090"  # Path to the annotations folder
 output_images_dir = "/absolute/path/to/selected_images"  # Folder for selected images
 output_annotations_dir = "/absolute/path/to/selected_annotations"  # Folder for selected annotations
+excluded_files_car = "/absolute/path/to/Europe-Car-Not Processed Image-Updated"  # Exclusion file for car
+excluded_files_motorbike = "/absolute/path/to/Europe-Motorbike-Not Processed Image-Updated"  # Exclusion file for motorbike
 sample_percentage = 0.05  # Percentage of files to sample (5%)
 
 # Create output directories if they don't exist
@@ -39,9 +41,27 @@ def copy_files(selected_files: List[str], src_dir: str, dest_dir: str) -> None:
         os.makedirs(os.path.dirname(dest_path), exist_ok=True)
         shutil.copy(file_path, dest_path)
 
+def load_excluded_images(file_path: str) -> List[str]:
+    """
+    Loads a list of image names to exclude from a text file.
+
+    Args:
+        file_path (str): Path to the text file containing image names.
+
+    Returns:
+        List[str]: A list of image names to exclude (e.g., ["26447788.jpg"]).
+    """
+    if not os.path.exists(file_path):
+        print(f"WARNING: Exclusion file not found: {file_path}")
+        return []
+
+    with open(file_path, "r") as f:
+        return [line.strip() for line in f.readlines() if line.strip()]
+
 def extract_relevant_annotations(annotation_file: str, selected_images: List[str], output_file: str) -> None:
     """
-    Extracts relevant annotations from an XML file for the selected images.
+    Extracts relevant annotations from an XML file for the selected images,
+    preserving metadata and global annotations.
 
     Args:
         annotation_file (str): Path to the original XML annotation file.
@@ -54,6 +74,11 @@ def extract_relevant_annotations(annotation_file: str, selected_images: List[str
     # Create a new root element for the filtered annotations
     new_root = ET.Element(root.tag, root.attrib)
 
+    # Copy all global metadata (non-<image> elements)
+    for element in root:
+        if element.tag != "image":
+            new_root.append(element)
+
     # Copy relevant <image> elements
     for image_elem in root.findall("image"):
         if image_elem.attrib.get("name") in selected_images:
@@ -64,10 +89,17 @@ def extract_relevant_annotations(annotation_file: str, selected_images: List[str
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
     new_tree.write(output_file, encoding="utf-8", xml_declaration=True)
 
-# Process categories
-categories = [("Europe-Car", "Europe-Car-Updated"), ("Europe-Motorbike", "Europe-Motorbike-Updated")]
+# Load excluded image names
+excluded_images_car = load_excluded_images(excluded_files_car)
+excluded_images_motorbike = load_excluded_images(excluded_files_motorbike)
 
-for images_category, annotations_category in categories:
+# Process categories
+categories = [
+    ("Europe-Car", "Europe-Car-Updated", excluded_images_car),
+    ("Europe-Motorbike", "Europe-Motorbike-Updated", excluded_images_motorbike),
+]
+
+for images_category, annotations_category, excluded_images in categories:
     # Define paths for each category
     image_category_dir = os.path.join(images_dir, images_category)
     annotation_category_dir = os.path.join(annotations_dir, annotations_category)
@@ -82,6 +114,11 @@ for images_category, annotations_category in categories:
     for subfolder in subfolders:
         # Collect all image files in the subfolder
         image_files = get_all_files(subfolder)
+
+        # Filter out excluded images
+        image_files = [
+            img for img in image_files if os.path.basename(img) not in excluded_images
+        ]
 
         # Select a random sample of 5% of the images
         selected_images = random_sample_files(image_files, sample_percentage)
@@ -100,7 +137,7 @@ for images_category, annotations_category in categories:
         # Create output annotation file path
         output_annotation_file = os.path.join(output_annotations_dir, f"{subfolder_name}.xml")
 
-        # Extract relevant annotations
+        # Extract relevant annotations, excluding empty ones
         extract_relevant_annotations(annotation_file, selected_image_names, output_annotation_file)
 
         # Copy selected images
